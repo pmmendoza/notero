@@ -1,0 +1,177 @@
+name: Upstream Release Monitor
+
+on:
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+env:
+  UPSTREAM_REPO: dvanoni/notero
+  BASELINE_FILE: .github/upstream-release-baseline.json
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          cache: true
+          node-version-file: .node-version
+          run-install: |
+            - args: ['--frozen-lockfile']
+
+      - name: Configure git
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Check latest upstream release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          latest_json=$(gh release view --repo "$UPSTREAM_REPO" --json tagName,publishedAt,url,targetCommitish)
+          latest_tag=$(jq -r '.tagName' <<<"$latest_json")
+          baseline_tag=$(jq -r '.tagName' "$BASELINE_FILE")
+
+          echo "$latest_json" > /tmp/upstream-latest.json
+          echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          echo "baseline_tag=$baseline_tag" >> "$GITHUB_OUTPUT"
+
+          if [ "$latest_tag" = "$baseline_tag" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Already processed upstream $latest_tag"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream changed from $baseline_tag to $latest_tag"
+          fi
+
+      - name: Try upstream sync and verify
+        if: steps.upstream.outputs.changed == 'true'
+        id: sync
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST_TAG: ${{ steps.upstream.outputs.latest_tag }}
+        run: |
+          branch="upstream-sync-${LATEST_TAG#v}"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream --tags
+          git checkout -B "$branch" origin/main
+
+          if ! git merge --no-edit "$LATEST_TAG"; then
+            git diff --name-only --diff-filter=U > /tmp/conflict-files.txt
+            git merge --abort || true
+            echo "result=conflict" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          checked_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          jq --arg checkedAt "$checked_at" \
+            '{tagName, publishedAt, url, checkedAt: $checkedAt}' \
+            /tmp/upstream-latest.json > "$BASELINE_FILE"
+
+          if ! vp run verify; then
+            echo "result=verify_failed" >> "$GITHUB_OUTPUT"
+            git status --short > /tmp/sync-status.txt
+            exit 0
+          fi
+
+          if ! vp run build || ! vp run create-xpi; then
+            echo "result=build_failed" >> "$GITHUB_OUTPUT"
+            git status --short > /tmp/sync-status.txt
+            exit 0
+          fi
+
+          git add "$BASELINE_FILE"
+          if git diff --cached --quiet && git diff --quiet; then
+            echo "result=no_changes" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git add -A
+          git commit -m "chore: Sync upstream Notero ${LATEST_TAG}"
+          git push --force-with-lease origin "$branch"
+          echo "result=ready_for_pr" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update sync pull request
+        if: steps.sync.outputs.result == 'ready_for_pr'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST_TAG: ${{ steps.upstream.outputs.latest_tag }}
+          BRANCH: ${{ steps.sync.outputs.branch }}
+        run: |
+          existing_pr=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')
+          body_file=/tmp/upstream-sync-pr.md
+          cat > "$body_file" <<EOF
+          Syncs upstream Notero ${LATEST_TAG} into this fork.
+
+          Automated checks completed:
+          - vp run verify
+          - vp run build
+          - vp run create-xpi
+
+          Before merging, review the converter files and release-channel config so the fork still preserves:
+          - Notion rich_text limit handling
+          - Native table conversion
+          - extension ID notero@vanoni.dev
+          - fork-owned update_url
+
+          After merge, dispatch the Release workflow with the next pm version.
+          EOF
+
+          if [ -n "$existing_pr" ]; then
+            gh pr edit "$existing_pr" --title "Sync upstream Notero ${LATEST_TAG}" --body-file "$body_file"
+            gh pr comment "$existing_pr" --body "Updated upstream sync branch for ${LATEST_TAG}."
+          else
+            gh pr create --base main --head "$BRANCH" --title "Sync upstream Notero ${LATEST_TAG}" --body-file "$body_file"
+          fi
+
+      - name: Open attention issue
+        if: steps.sync.outputs.result == 'conflict' || steps.sync.outputs.result == 'verify_failed' || steps.sync.outputs.result == 'build_failed'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST_TAG: ${{ steps.upstream.outputs.latest_tag }}
+          RESULT: ${{ steps.sync.outputs.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Manual Notero upstream sync needed for ${LATEST_TAG}"
+          issue_number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          body_file=/tmp/upstream-sync-issue.md
+
+          {
+            echo "The upstream Notero release monitor found ${LATEST_TAG}, but automatic sync did not complete."
+            echo
+            echo "Result: ${RESULT}"
+            echo "Run: ${RUN_URL}"
+            echo
+            echo "Required manual checks:"
+            echo "- Resolve upstream merge conflicts or failing checks."
+            echo "- Preserve the fork's rich_text limit handling and native table conversion."
+            echo "- Preserve extension ID notero@vanoni.dev."
+            echo "- Preserve the fork-owned update_url in package.json."
+            echo "- Run vp run verify, vp run build, and vp run create-xpi before release."
+          } > "$body_file"
+
+          if [ "$RESULT" = "conflict" ] && [ -s /tmp/conflict-files.txt ]; then
+            {
+              echo
+              echo "Conflict files:"
+              sed 's/^/- /' /tmp/conflict-files.txt
+            } >> "$body_file"
+          fi
+
+          if [ -n "$issue_number" ]; then
+            gh issue comment "$issue_number" --body-file "$body_file"
+          else
+            gh issue create --title "$title" --body-file "$body_file"
+          fi

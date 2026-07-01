@@ -20,6 +20,25 @@ stable `release` tag.
 Use `Update Manifest` only to repair or regenerate `updates.json` for an already
 published XPI.
 
+## Upstream Release Monitor
+
+The `Upstream Release Monitor` workflow runs every Monday at 09:17 UTC and can
+also be dispatched manually. It compares the latest `dvanoni/notero` release to
+`.github/upstream-release-baseline.json`.
+
+When upstream has not published a newer release, the workflow exits without
+changes. When a newer release exists, it creates an `upstream-sync-*` branch and
+tries to merge the upstream release tag into this fork.
+
+If the merge is clean and `vp run verify`, `vp run build`, and
+`vp run create-xpi` pass, the workflow opens or updates a pull request. Review
+that PR before merging, especially the note converter and release-channel files.
+After merge, dispatch `Release` manually with the next `*-pm.N` version.
+
+If the merge conflicts or verification/build fails, the workflow opens or
+updates an issue titled `Manual Notero upstream sync needed for <tag>`. That is
+the attention path for cases that cannot be automated safely.
+
 ## Public-Clean Gate
 
 Before making the fork public or publishing release assets, verify that tracked
