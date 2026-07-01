@@ -2,9 +2,9 @@
   "name": "notero",
   "version": "1.2.3",
   "description": "Sync Zotero items and notes into Notion",
-  "homepage": "https://github.com/dvanoni/notero",
+  "homepage": "https://github.com/pmmendoza/notero",
   "bugs": {
-    "url": "https://github.com/dvanoni/notero/issues"
+    "url": "https://github.com/pmmendoza/notero/issues"
   },
   "author": {
     "name": "David Hoff-Vanoni",
@@ -12,7 +12,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/dvanoni/notero.git"
+    "url": "https://github.com/pmmendoza/notero.git"
   },
   "scripts": {
     "build": "node scripts/build.mts",
@@ -78,7 +78,7 @@
     },
     "id": "notero@vanoni.dev",
     "name": "Notero",
-    "updateURL": "https://github.com/dvanoni/notero/releases/download/release/updates.json",
+    "updateURL": "https://github.com/pmmendoza/notero/releases/download/release/updates.json",
     "zoteroMinVersion": "7.0",
     "zoteroMaxVersion": "9.0.*",
     "zotero6": {

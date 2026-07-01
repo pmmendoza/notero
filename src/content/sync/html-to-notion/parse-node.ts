@@ -47,6 +47,11 @@ export type ListElement = {
   type: 'list';
 };
 
+export type TableElement = {
+  element: HTMLTableElement;
+  type: 'table';
+};
+
 type MathBlockElement = {
   blockType: 'equation';
   element: HTMLElement;
@@ -73,6 +78,7 @@ export type ParsedNode =
   | ListElement
   | MathBlockElement
   | RichTextElement
+  | TableElement
   | TextNode;
 
 function doesBlockSupportChildren(
@@ -200,6 +206,9 @@ export function parseNode(node: Node): ParsedNode | undefined {
       return parsePreElement(node);
     case 'SPAN':
       return parseSpanElement(node);
+    case 'TABLE':
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      return { element: node as HTMLTableElement, type: 'table' };
     default:
       return parseRichTextElement(node);
   }

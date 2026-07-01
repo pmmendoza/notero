@@ -1,8 +1,8 @@
 # Notero
 
-[![Latest release](https://img.shields.io/github/v/release/dvanoni/notero)](https://github.com/dvanoni/notero/releases/latest)
-[![Total downloads](https://img.shields.io/github/downloads/dvanoni/notero/latest/total?sort=semver)][download]
-[![Works with Zotero](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdvanoni%2Fnotero%2Fmain%2Fpackage.json&query=%24.xpi.zoteroMinVersion&prefix=v&suffix=%2B&logo=zotero&label=Works%20with%20Zotero&color=%23CC2936)](https://www.zotero.org/)
+[![Latest release](https://img.shields.io/github/v/release/pmmendoza/notero)](https://github.com/pmmendoza/notero/releases/latest)
+[![Total downloads](https://img.shields.io/github/downloads/pmmendoza/notero/latest/total?sort=semver)][download]
+[![Works with Zotero](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fpmmendoza%2Fnotero%2Fmain%2Fpackage.json&query=%24.xpi.zoteroMinVersion&prefix=v&suffix=%2B&logo=zotero&label=Works%20with%20Zotero&color=%23CC2936)](https://www.zotero.org/)
 [![Buy me a coffee](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapp.buymeacoffee.com%2Fapi%2Fcreators%2Fslug%2Fdvanoni&query=%24.data.public_supporters_count&prefix=%F0%9F%92%9C%20&style=social&logo=buymeacoffee&label=Buy%20me%20a%20coffee)](https://www.buymeacoffee.com/dvanoni)
 
 Notero is a [Zotero plugin](https://www.zotero.org/support/plugins) for syncing
@@ -129,8 +129,8 @@ Notion database. Detailed setup instructions are below.
    menu item or the sidebar in the main Zotero preferences window.
 5. Configure the Notero preferences as desired.
 
-[download]: https://notero.vanoni.dev/download
-[latest release]: https://github.com/dvanoni/notero/releases/latest
+[download]: https://github.com/pmmendoza/notero/releases/latest
+[latest release]: https://github.com/pmmendoza/notero/releases/latest
 [v0.5.17]: https://github.com/dvanoni/notero/releases/tag/v0.5.17
 
 ### Connect to Notion
@@ -438,21 +438,13 @@ documentation and should allow you to build and run Notero yourself.
 
 ### Releasing a New Version
 
-Releases are performed via GitHub Actions. The
-[`release`](.github/workflows/release.yml) workflow defines the following jobs:
+Fork releases are performed via GitHub Actions. The
+[`release`](.github/workflows/release.yml) workflow is dispatched manually with a
+deterministic version such as `1.2.4-pm.1`. It verifies the project, builds the
+`.xpi`, publishes it to a versioned release, generates `updates.json`, and
+publishes the update manifest to the stable [`release`][release-tag] release.
 
-#### `release-please`
+See [PM Fork Release Notes](docs/pm-fork-release.md) for the public-clean gate
+and local release checks.
 
-This job uses the [release-please][] action to create release PRs when new
-user-facing commits are pushed to the `main` branch. A release PR will bump the
-package version and update the changelog. When the PR is merged, this job then
-creates a new version tag and GitHub release.
-
-#### `publish-artifacts`
-
-This job runs when a new release is created by the `release-please` job. It
-builds the `.xpi` file and publishes it to the release. It also generates an
-updated manifest file and publishes it to the [`release`][release-tag] release.
-
-[release-please]: https://github.com/googleapis/release-please-action
-[release-tag]: https://github.com/dvanoni/notero/releases/tag/release
+[release-tag]: https://github.com/pmmendoza/notero/releases/tag/release

@@ -2,6 +2,11 @@ name: Update Manifest
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Released version, for example 1.2.4-pm.1
+        required: true
+        type: string
 
 jobs:
   generate-and-publish:
@@ -13,20 +18,26 @@ jobs:
       - uses: voidzero-dev/setup-vp@v1
         with:
           cache: true
-          node-version-file: '.node-version'
+          node-version-file: .node-version
           run-install: |
             - args: ['--frozen-lockfile']
-      - name: Get latest release asset URL
+      - name: Get release asset URL
         id: get-asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          URL=$(gh release view --json assets --jq '.assets[0].url')
+          URL=$(gh release view "v${{ inputs.version }}" --json assets --jq '.assets[] | select(.name | endswith(".xpi")) | .url' | head -n 1)
+          test -n "$URL"
           echo "asset_url=$URL" >> "$GITHUB_OUTPUT"
+      - name: Set release version
+        run: |
+          mkdir -p gen
+          printf '"%s"\n' '${{ inputs.version }}' > gen/version.json
       - name: Generate update manifest
-        run: vp run generate-update-manifest ${{ steps.get-asset.outputs.asset_url }}
+        run: vp run generate-update-manifest '${{ steps.get-asset.outputs.asset_url }}'
       - name: Publish update manifest
         uses: softprops/action-gh-release@v3
         with:
           tag_name: release
+          name: release
           files: gen/update*

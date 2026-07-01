@@ -1,103 +1,45 @@
 name: Release
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, for example 1.2.4-pm.1
+        required: true
+        type: string
 
 jobs:
-  release-please:
-    runs-on: ubuntu-latest
-    permissions: {}
-    outputs:
-      release_created: ${{ steps.release-please.outputs.release_created }}
-      tag_name: ${{ steps.release-please.outputs.tag_name }}
-    steps:
-      - id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.NOTERO_BOT_CLIENT_ID }}
-          private-key: ${{ secrets.NOTERO_BOT_PRIVATE_KEY }}
-      - id: release-please
-        uses: googleapis/release-please-action@v5
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-
-  publish-artifacts:
-    needs: release-please
-    if: needs.release-please.outputs.release_created
+  publish:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    outputs:
-      download_url: ${{ fromJSON(steps.publish-xpi.outputs.assets)[0].browser_download_url }}
     steps:
       - uses: actions/checkout@v6
       - uses: voidzero-dev/setup-vp@v1
         with:
           cache: true
-          node-version-file: '.node-version'
+          node-version-file: .node-version
           run-install: |
             - args: ['--frozen-lockfile']
+      - name: Set release version
+        run: |
+          mkdir -p gen
+          printf '"%s"\n' '${{ inputs.version }}' > gen/version.json
       - run: vp run verify
       - run: vp run build
       - run: vp run create-xpi
       - id: publish-xpi
-        name: Publish xpi
+        name: Publish XPI
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
           files: xpi/*.xpi
       - name: Generate update manifest
-        run: vp run generate-update-manifest ${{ fromJSON(steps.publish-xpi.outputs.assets)[0].browser_download_url }}
+        run: vp run generate-update-manifest '${{ fromJSON(steps.publish-xpi.outputs.assets)[0].browser_download_url }}'
       - name: Publish update manifest
         uses: softprops/action-gh-release@v3
         with:
           tag_name: release
+          name: release
           files: gen/update*
-
-  update-download-redirect:
-    needs: publish-artifacts
-    runs-on: ubuntu-latest
-    permissions: {}
-    steps:
-      - name: Update download redirect
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
-          CLOUDFLARE_RULESET_ID: ${{ secrets.CLOUDFLARE_RULESET_ID }}
-          CLOUDFLARE_RULE_ID: ${{ secrets.CLOUDFLARE_RULE_ID }}
-          DOWNLOAD_URL: ${{ needs.publish-artifacts.outputs.download_url }}
-        run: |
-          echo "Target URL: ${DOWNLOAD_URL}"
-          if [ -z "${DOWNLOAD_URL}" ]; then
-            echo "❌ DOWNLOAD_URL is empty!"
-            exit 1
-          fi
-          PAYLOAD=$(jq --null-input \
-            --arg download_url "${DOWNLOAD_URL}" \
-            '{
-              "action": "redirect",
-              "action_parameters": {
-                "from_value": {
-                  "preserve_query_string": false,
-                  "status_code": 302,
-                  "target_url": {
-                    "value": $download_url
-                  }
-                }
-              },
-              "description": "Notero download",
-              "enabled": true,
-              "expression": "(http.host eq \"notero.vanoni.dev\" and starts_with(http.request.uri.path, \"/download\"))"
-            }')
-          RESPONSE=$(curl --silent --show-error --fail-with-body --request PATCH \
-            "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/rulesets/${CLOUDFLARE_RULESET_ID}/rules/${CLOUDFLARE_RULE_ID}" \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --header "Content-Type: application/json" \
-            --data "${PAYLOAD}")
-          SUCCESS=$(echo "${RESPONSE}" | jq --raw-output '.success')
-          if [ "${SUCCESS}" != "true" ]; then
-            echo "❌ Cloudflare API request failed!"
-            echo "Response: ${RESPONSE}"
-            exit 1
-          fi
